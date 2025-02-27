@@ -99,6 +99,24 @@ typedef enum TokenKind {
 
 typedef struct Token {
     TokenKind kind;
+    union {
+        uint64_t val;
+        
+        struct {
+            const char *start;
+            const char *end;
+        };
+
+        /*
+        Notes:
+        * It's better to use a union here because a union only allocates as much space as needed for the active field.
+          Since tokens occur sequentially and only one token type is active at any given time, using a union reduces
+          unnecessary overhead. Instead of allocating space for every possible token field, the union ensures that only
+          the necessary space for the current token type is used, making the memory usage more efficient.
+
+        */
+    };
+
 } Token;
 
 Token token;
@@ -116,25 +134,124 @@ void nextToken() {
         case '6':
         case '7':
         case '8':
-        case '9':
+        case '9': {
+            uint64_t val = 0;
+
             while (isdigit(*stream)) {
-                stream++;
+                val *= 10;
+                val += *stream++ - '0';
             }
+            
             token.kind = TOKEN_INT;
+            token.val = val;
 
             break;
+
+            /*
+            Notes:
+            * Value parser works as follows: (lets say I have 12345)
+                * val = 0 (I see a 1)
+                * val = 1
+                * val = 1 * 10 -> 10
+                * val = 10 + 2 -> 12
+                * val = 12 * 10 -> 120
+                * val = 120 + 3 -> 123
+                * val = 123 * 10 -> 1230
+                * val = 1230 + 4 -> 1234
+                * val = 1234 * 10 -> 12340
+                * val = 12340 + 5 -> 12345
+            */
+        }
+        case 'a': 
+        case 'b': 
+        case 'c': 
+        case 'd': 
+        case 'e': 
+        case 'f': 
+        case 'g': 
+        case 'h': 
+        case 'i': 
+        case 'j': 
+        case 'k': 
+        case 'l': 
+        case 'm': 
+        case 'n': 
+        case 'o': 
+        case 'p': 
+        case 'q': 
+        case 'r': 
+        case 's': 
+        case 't': 
+        case 'u': 
+        case 'v': 
+        case 'w': 
+        case 'x': 
+        case 'y': 
+        case 'z': 
+        case 'A': 
+        case 'B': 
+        case 'C': 
+        case 'D': 
+        case 'E': 
+        case 'F': 
+        case 'G': 
+        case 'H': 
+        case 'I': 
+        case 'J': 
+        case 'K': 
+        case 'L': 
+        case 'M': 
+        case 'N': 
+        case 'O': 
+        case 'P': 
+        case 'Q': 
+        case 'R': 
+        case 'S': 
+        case 'T': 
+        case 'U': 
+        case 'V': 
+        case 'W': 
+        case 'X': 
+        case 'Y':
+        case 'Z': 
+        case '_': {
+            const char *start = stream++;
+            
+            while (isalnum(*stream) || *stream == '_') {
+                stream++;
+            }
+
+            token.kind = TOKEN_NAME;
+            token.start = start;
+            token.end = stream;
+
+            break;
+        }
         default:
             token.kind = *stream++;
     }
 }
 
 void lexerTest() {
-    char *soruce = "+()12345+994";
+    char *soruce = "+()12345+994abc";
     stream = soruce;
     nextToken();
 
     while (token.kind) {
-        printf("TOKEN: %d | Value: %c\n", token.kind, token.kind);
+        if (token.kind == TOKEN_INT) {
+            printf("TOKEN: %d | Value: %llu\n", token.kind, token.val);
+        } else if (token.kind == TOKEN_NAME) {
+            char *string = malloc((token.end - token.start) + 1);
+            for (int i = 0; i < token.end - token.start; i++) {
+                string[i] = *((const char *)token.start) + i;
+
+            }
+
+            string[token.end - token.start] = '\0';
+            printf("TOKEN: %d | Value: %s\n", token.kind, string);
+        } else {
+            printf("TOKEN: %d | Value: %c\n", token.kind, token.kind);
+        }
         nextToken();
     }
 }
