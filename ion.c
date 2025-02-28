@@ -14,7 +14,7 @@ typedef struct BufHdr {
     char buf[0]; // Used as a placeholder, to determine how much memory to use later
 } BufHdr;
 
-#define BUF__HDR(b) ((BufHdr *)((char *)buf - offsetof(BufHdr, buf)))
+#define BUF__HDR(b) ((BufHdr *)((char *)b - offsetof(BufHdr, buf)))
 #define BUF__FITS(b, n) (BUF_LEN(b) + (n) <= BUF_CAP(b))
 #define BUF__FIT(b, n) (BUF__FITS(b, n) ? 0 : ((b) = buf__grow((b), BUF_LEN(b) + (n), sizeof(*(b)))))
 #define BUF_FREE(b) ((b) ? free(BUF__HDR(b)) : 0)
@@ -71,6 +71,10 @@ void *buf__grow(const void *buf, size_t newLength, size_t elementSize) {
 
     newHdr->cap = newCap;
     return newHdr->buf;
+
+    /*
+    TODO: Implement stronger bug fixing and implemenptation
+    */
 }
 
 void bufTest() {
@@ -226,39 +230,53 @@ void nextToken() {
             token.end = stream;
 
             break;
+
+            /*
+            Notes
+            * If we see a string of characters (a-z | A-Z | _ ), we keep moving the stream pointer
+              until we no longer see accepted character set (a-z | A-Z | _ ).
+            * Store the start pointer of where the stream pointer beings, which is the first accepted
+              character in the set (a-z | A-Z | _ ).
+            * Store the pointer of the last character in the accpeted set (a-z | A-Z | _ ).
+            
+            */
         }
         default:
             token.kind = *stream++;
     }
 }
 
-void lexerTest() {
-    char *soruce = "+()12345+994abc";
+void printToken(Token token) {
+    switch (token.kind) {
+        case TOKEN_INT:
+            printf("TOKEN -> INT: %llu\n", token.val);
+            break;
+        case TOKEN_NAME:
+            printf("TOKEN -> NAME: %.*s\n", (int)(token.end - token.start), token.start);
+            break;
+        default:
+            printf("TOKEN -> TYPE NOT SET: '%c'\n", token.kind);
+            break;
+    }
+    
+}
+
+void lextTest() {
+    char *soruce = "+()_HELLO1,234+FOO!994";
     stream = soruce;
+
     nextToken();
 
     while (token.kind) {
-        if (token.kind == TOKEN_INT) {
-            printf("TOKEN: %d | Value: %llu\n", token.kind, token.val);
-        } else if (token.kind == TOKEN_NAME) {
-            char *string = malloc((token.end - token.start) + 1);
-            for (int i = 0; i < token.end - token.start; i++) {
-                string[i] = *((const char *)token.start) + i;
-
-            }
-
-            string[token.end - token.start] = '\0';
-            printf("TOKEN: %d | Value: %s\n", token.kind, string);
-        } else {
-            printf("TOKEN: %d | Value: %c\n", token.kind, token.kind);
-        }
+        printToken(token);
         nextToken();
     }
+    
 }
 
 int main(int argc, char **argv) {
     bufTest();
-    lexerTest();
+    lextTest();
 
     return 0;
 }
