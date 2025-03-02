@@ -4,8 +4,31 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 #define MAX(x, y) ((x) >= (y)) ? (x) : (y)
+
+void *xmalloc(size_t numBytes) {
+    void *memory = malloc(numBytes);
+
+    if (memory == NULL) {
+        perror("xmalloc failed");
+        exit(EXIT_FAILURE);
+    }
+
+    return memory;
+}
+
+void *xrealloc(void *ptr, size_t numBytes) {
+    ptr = realloc(ptr, numBytes);
+
+    if (ptr == NULL) {
+        perror("xrealloc failed");
+        exit(EXIT_FAILURE);
+    }
+
+    return ptr;
+}
 
 // Stretchy buffer
 typedef struct BufHdr {
@@ -17,7 +40,7 @@ typedef struct BufHdr {
 #define BUF__HDR(b) ((BufHdr *)((char *)b - offsetof(BufHdr, buf)))
 #define BUF__FITS(b, n) (BUF_LEN(b) + (n) <= BUF_CAP(b))
 #define BUF__FIT(b, n) (BUF__FITS(b, n) ? 0 : ((b) = buf__grow((b), BUF_LEN(b) + (n), sizeof(*(b)))))
-#define BUF_FREE(b) ((b) ? free(BUF__HDR(b)) : 0)
+#define BUF_FREE(b) ((b) ? free(BUF__HDR(b)), (b) = NULL : 0)
 
 /*
 Notes:
@@ -63,9 +86,9 @@ void *buf__grow(const void *buf, size_t newLength, size_t elementSize) {
     BufHdr *newHdr = NULL;
 
     if (buf != NULL) {
-        newHdr = realloc(BUF__HDR(buf), newSize);
+        newHdr = xrealloc(BUF__HDR(buf), newSize);
     } else {
-        newHdr = malloc(newSize);
+        newHdr = xmalloc(newSize);
         newHdr->len = 0;
     }
 
@@ -78,21 +101,92 @@ void *buf__grow(const void *buf, size_t newLength, size_t elementSize) {
 }
 
 void bufTest() {
-    int *buf = NULL;
-    int n = 1024;
+    int *asdf = NULL;
 
-    for (int i = 0; i < n; i++) {
-        BUF_PUSH(buf, i);
+    assert(BUF_LEN(asdf) == 0);
+
+    enum {N = 1024};
+
+    for (int i = 0; i < N; i++) {
+        BUF_PUSH(asdf, i);
     }
 
-    assert(BUF_LEN(buf) == n);
+    assert(BUF_LEN(asdf) == N);
 
-    for (int i = 0; i < n; i++) {
-        assert(buf[i]== i);
+    for (int i = 0; i < N; i++) {
+        assert(asdf[i]== i);
     }
 
 
-    BUF_FREE(buf);
+    BUF_FREE(asdf);
+    assert(asdf == NULL);
+    assert(BUF_LEN(asdf) == 0);
+}
+
+typedef struct InternStr {
+    size_t len;
+    const char *str;
+} InternStr;
+
+static InternStr *interns;
+
+const char *strInternRange(const char *start, const char *end) {
+    size_t len = end - start;
+    for (size_t i = 0; i < BUF_LEN(interns); i++) {
+        if (interns[i].len == len && strncmp(interns[i].str, start, len) == 0) {
+            return interns[i].str;
+        }
+    }
+
+    char *str = xmalloc(len + 1);
+    memcpy(str, start, len);
+    str[len] = 0;
+    BUF_PUSH(interns, ((InternStr){len, str}));
+
+    return str;
+
+    /*
+    Notes
+    * At first the interns buffer is NULL, and thus has a length of 0.
+    * Space is created for a string with one more character for the null terminator.
+    * Then the contents of the string between a range is copied from wherever the start
+      of the string is to the length.
+    * This is then pushed to the interns buffer.
+    * The whole point of string interning is if we see two of the same string, we can
+      store the pointer of the string, making any new comparsions easier.
+    * Biggest confusion: #define BUF__HDR(b) ((BufHdr *)((char *)b - offsetof(BufHdr, buf)))
+        * BUF__HDR(interns) which moves the pointer back by whatever the offset is and casts it
+          as a BufHdr pointer exposing the metadata.
+        * It is notable that within the buff_grow function, where we grow the buffer, the header
+          is also allocated there.
+    * Given the first call to strInternRange the pointer to the string retuns after being pushed to
+      the Interns buffer.
+    * On any other call to strInternRange (which now has a length of N) the string is compared using
+      strcmp and then that pointer is returned, thus two strings are equal.
+    */
+
+}
+
+const char *strIntern(const char *str) {
+    return strInternRange(str, str + strlen(str));
+
+    // str + strlen(str) just moves the pointer to the null terminated string
+}
+
+void stringInternTest() {
+    char x[] = "hello";
+    char y[] = "hello";
+    const char *pX = strIntern(x);
+    const char *pY = strIntern(y);
+
+    assert(x != y);
+    assert(pX == pY);
+
+    assert(strIntern(x) == strIntern(y));
+
+    char z[] = "hello";
+    const char *pZ = strIntern(z);
+    assert(pZ == pX);
 }
 
 typedef enum TokenKind {
@@ -103,13 +197,10 @@ typedef enum TokenKind {
 
 typedef struct Token {
     TokenKind kind;
+    const char *start;
+    const char *end;
     union {
         uint64_t val;
-        
-        struct {
-            const char *start;
-            const char *end;
-        };
 
         /*
         Notes:
@@ -124,10 +215,11 @@ typedef struct Token {
 } Token;
 
 Token token;
-
 const char *stream;
 
 void nextToken() {
+    token.start = stream;
+
     switch (*stream) {
         case '0':
         case '1':
@@ -219,15 +311,11 @@ void nextToken() {
         case 'Y':
         case 'Z': 
         case '_': {
-            const char *start = stream++;
-            
             while (isalnum(*stream) || *stream == '_') {
                 stream++;
             }
 
             token.kind = TOKEN_NAME;
-            token.start = start;
-            token.end = stream;
 
             break;
 
@@ -243,7 +331,10 @@ void nextToken() {
         }
         default:
             token.kind = *stream++;
+            break;
     }
+
+    token.end = stream;
 }
 
 void printToken(Token token) {
@@ -258,7 +349,6 @@ void printToken(Token token) {
             printf("TOKEN -> TYPE NOT SET: '%c'\n", token.kind);
             break;
     }
-    
 }
 
 void lextTest() {
@@ -277,6 +367,7 @@ void lextTest() {
 int main(int argc, char **argv) {
     bufTest();
     lextTest();
+    stringInternTest();
 
     return 0;
 }
